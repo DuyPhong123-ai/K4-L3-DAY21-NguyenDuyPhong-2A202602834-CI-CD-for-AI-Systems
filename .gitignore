@@ -1,5 +1,9 @@
 mlflow.db
 mlartifacts/
+mlruns/
+.pytest_cache/
+mlflow.db-shm
+mlflow.db-wal
 models/
 outputs/
 data/train_batch1.csv
@@ -8,6 +12,7 @@ data/train_batch2.csv
 sa-key.json
 .env
 .venv/
+.venv311/
 __pycache__/
 *.pyc
 .DS_Store

@@ -1,93 +1,53 @@
-import os
-import json
+﻿import json
+import joblib
 import numpy as np
 import pandas as pd
-from src.train import train
-
-
-FEATURE_NAMES = [
-    "age", "workclass", "education_num", "marital_status", "occupation",
-    "relationship", "sex", "capital_gain", "capital_loss", "hours_per_week",
-]
+import pytest
+from sklearn.metrics import accuracy_score, f1_score
+from src.train import FEATURE_NAMES, train
 
 
 def _make_temp_data(tmp_path):
-    """
-    Tao dataset nho voi cung schema Adult de su dung trong test.
-
-    pytest cung cap `tmp_path` la mot thu muc tam thoi, tu dong xoa sau khi test ket thuc.
-    Ham nay dung du lieu ngau nhien nen khong can ket noi cloud storage hay tai file CSV thuc.
-    """
     rng = np.random.default_rng(0)
-    n = 200
-
-    # TODO 1: Tao mang X co kich thuoc (n, len(FEATURE_NAMES)) voi gia tri [0, 1)
-    # X = rng.random((n, len(FEATURE_NAMES)))
-
-    # TODO 2: Tao mang y gom n phan tu nguyen ngau nhien trong [0, 2)
-    # Chu y: bai toan nay chi co HAI lop (0 va 1), nen can tren la 2.
-    # y = rng.integers(0, 2, size=n)
-
-    # TODO 3: Xay dung DataFrame, them cot "target"
-    # df = pd.DataFrame(X, columns=FEATURE_NAMES)
-    # df["target"] = y
-
-    # TODO 4: Luu 160 dong dau lam tap huan luyen, 40 dong cuoi lam tap holdout
-    # train_path = str(tmp_path / "train.csv")
-    # eval_path  = str(tmp_path / "holdout.csv")
-    # df.iloc[:160].to_csv(train_path, index=False)
-    # df.iloc[160:].to_csv(eval_path,  index=False)
-
-    # TODO 5: Tra ve (train_path, eval_path)
-    # return train_path, eval_path
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+    df = pd.DataFrame(rng.random((200, len(FEATURE_NAMES))), columns=FEATURE_NAMES)
+    df["target"] = rng.integers(0, 2, size=200)
+    train_path, eval_path = tmp_path / "train.csv", tmp_path / "holdout.csv"
+    df.iloc[:160].to_csv(train_path, index=False)
+    df.iloc[160:].to_csv(eval_path, index=False)
+    return str(train_path), str(eval_path)
 
 
-def test_train_returns_float(tmp_path):
-    """Kiem tra ham train() tra ve mot so thuc nam trong [0.0, 1.0]."""
+@pytest.fixture
+def trained(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "unit-tests")
+    monkeypatch.setenv("MLFLOW_ARTIFACT_ROOT", str(tmp_path / "mlartifacts"))
     train_path, eval_path = _make_temp_data(tmp_path)
-
-    # TODO 6: Goi ham train() voi sieu tham so nho
-    # (n_estimators=10, learning_rate=0.1, max_depth=2) va cac duong dan file vua tao
-    # f1 = train({"n_estimators": 10, "learning_rate": 0.1, "max_depth": 2}, ...)
-
-    # TODO 7: Kiem tra ket qua
-    # assert isinstance(f1, float)
-    # assert 0.0 <= f1 <= 1.0
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+    f1 = train({"n_estimators": 10, "learning_rate": 0.1, "max_depth": 2}, train_path, eval_path)
+    return f1, pd.read_csv(eval_path)
 
 
-def test_report_file_created(tmp_path):
-    """Kiem tra file outputs/report.json duoc tao sau khi huan luyen."""
-    train_path, eval_path = _make_temp_data(tmp_path)
-    train(
-        {"n_estimators": 10, "learning_rate": 0.1, "max_depth": 2},
-        data_path=train_path,
-        eval_path=eval_path,
-    )
-
-    # TODO 8: Kiem tra file ton tai va noi dung dung dinh dang
-    # assert os.path.exists("outputs/report.json")
-    # with open("outputs/report.json") as f:
-    #     report = json.load(f)
-    # assert "f1_score" in report
-    # assert "accuracy" in report
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+def test_train_returns_float(trained):
+    f1, _ = trained
+    assert isinstance(f1, float)
+    assert 0 <= f1 <= 1
 
 
-def test_model_file_created(tmp_path):
-    """Kiem tra file models/model.joblib duoc tao sau khi huan luyen."""
-    train_path, eval_path = _make_temp_data(tmp_path)
-    train(
-        {"n_estimators": 10, "learning_rate": 0.1, "max_depth": 2},
-        data_path=train_path,
-        eval_path=eval_path,
-    )
+def test_report_file_created(trained):
+    f1, holdout = trained
+    with open("outputs/report.json", encoding="utf-8") as f:
+        report = json.load(f)
+    model = joblib.load("models/model.joblib")
+    preds = model.predict(holdout[FEATURE_NAMES])
+    assert report["f1_score"] == f1 == f1_score(holdout.target, preds)
+    assert report["accuracy"] == accuracy_score(holdout.target, preds)
+    assert report["train_rows"] == 160
+    assert report["eval_rows"] == 40
 
-    # TODO 9: Kiem tra file model ton tai
-    # assert os.path.exists("models/model.joblib")
 
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+def test_model_file_created(trained):
+    _, holdout = trained
+    model = joblib.load("models/model.joblib")
+    assert list(model.feature_names_in_) == FEATURE_NAMES
+    assert set(model.predict(holdout[FEATURE_NAMES])) <= {0, 1}
